@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import joblib
+import datetime
 
 st.set_page_config(page_title="Taxi Demand Hotspots", layout="centered")
 
@@ -16,33 +17,49 @@ def load_data():
     df['pickup_date'] = pd.to_datetime(df['pickup_date'])
     return df
 
-model = load_model()
-data = load_data()
-
 @st.cache_data
 def load_zones():
     return pd.read_csv('zone_lookup.csv')
 
+model = load_model()
+data = load_data()
 zones = load_zones()
 
 st.title("Where should I drive next?")
 st.caption("A demand-hotspot recommender for NYC taxi drivers, built on a GPU-accelerated pipeline.")
 
-snapshots = (
-    data[['pickup_date', 'pickup_hour']]
-    .drop_duplicates()
-    .sort_values(['pickup_date', 'pickup_hour'], ascending=False)
-)
-snapshots['label'] = snapshots['pickup_date'].dt.strftime('%b %d') + ' — ' + snapshots['pickup_hour'].astype(str) + ':00'
+min_date = data['pickup_date'].min().date()
+max_date = data['pickup_date'].max().date()
 
-choice = st.selectbox("Choose a snapshot hour:", snapshots['label'])
-chosen = snapshots[snapshots['label'] == choice].iloc[0]
+today = datetime.date.today()
+mapped_day = min(today.day, max_date.day)
+default_date = datetime.date(min_date.year, min_date.month, mapped_day)
+default_date = min(max(default_date, min_date), max_date)
+
+default_hour = datetime.datetime.now().hour
+
+st.subheader("Pick a snapshot")
+st.caption(f"Live data only covers {min_date.strftime('%B %Y')} — defaulting to today's date and hour, mapped onto that month.")
+
+col1, col2 = st.columns([1, 1.4])
+with col1:
+    chosen_date = st.date_input("Date", value=default_date, min_value=min_date, max_value=max_date)
+with col2:
+    chosen_hour = st.select_slider(
+        "Hour",
+        options=list(range(24)),
+        value=default_hour,
+        format_func=lambda h: datetime.time(h).strftime("%I %p").lstrip("0"),
+    )
 
 snapshot_df = data[
-    (data['pickup_date'] == chosen['pickup_date']) &
-    (data['pickup_hour'] == chosen['pickup_hour'])
+    (data['pickup_date'] == pd.Timestamp(chosen_date)) &
+    (data['pickup_hour'] == chosen_hour)
 ].copy()
 
+if snapshot_df.empty:
+    st.warning("No recorded trips for that exact date and hour — try a nearby hour.")
+    st.stop()
 
 snapshot_df['predicted_demand'] = model.predict(snapshot_df[FEATURES])
 
