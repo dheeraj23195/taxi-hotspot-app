@@ -72,15 +72,79 @@ ranked = (
 ranked = ranked.merge(zones, left_on='pickup_location_id', right_on='zone_id', how='left')
 ranked['display_name'] = ranked['zone_name'].fillna('Zone ' + ranked['pickup_location_id'].astype(str))
 
+import plotly.express as px
+
 st.subheader("Top 10 zones to head to")
-st.bar_chart(ranked.set_index('display_name')['predicted_demand'])
-st.dataframe(ranked[['display_name', 'borough', 'predicted_demand']], use_container_width=True)
+
+fig_zones = px.bar(
+    ranked,
+    x='predicted_demand',
+    y='display_name',
+    orientation='h',
+    color='predicted_demand',
+    color_continuous_scale='YlOrRd',
+    text='predicted_demand',
+    labels={'predicted_demand': 'Predicted trips', 'display_name': ''},
+)
+fig_zones.update_traces(texttemplate='%{text:.1f}', textposition='outside')
+fig_zones.update_layout(
+    showlegend=False,
+    coloraxis_showscale=False,
+    yaxis=dict(categoryorder='total ascending'),
+    height=420,
+    margin=dict(l=10, r=10, t=10, b=10),
+)
+st.plotly_chart(fig_zones, use_container_width=True)
+
+ranked_display = ranked[['display_name', 'borough', 'predicted_demand']].reset_index(drop=True)
+ranked_display.insert(0, 'rank', range(1, len(ranked_display) + 1))
+ranked_display = ranked_display.rename(columns={
+    'rank': '#',
+    'display_name': 'Zone',
+    'borough': 'Borough',
+    'predicted_demand': 'Predicted Trips',
+})
+
+vmin = ranked_display['Predicted Trips'].min()
+vmax = ranked_display['Predicted Trips'].max()
+
+def contrast_text(val):
+    norm = (val - vmin) / (vmax - vmin) if vmax > vmin else 0
+    color = 'white' if norm > 0.55 else '#1f2937'
+    return f'color: {color}; font-weight: 600;'
+
+styled_table = (
+    ranked_display.style
+    .format({'Predicted Trips': '{:.0f}'})
+    .background_gradient(cmap='YlOrRd', subset=['Predicted Trips'], vmin=vmin, vmax=vmax)
+    .map(contrast_text, subset=['Predicted Trips'])
+)
+
+st.dataframe(styled_table, hide_index=True, use_container_width=True)
 
 st.subheader("Why acceleration matters")
 st.caption("Same aggregation, CPU vs GPU — 6.7M trip records")
+
 benchmark = pd.DataFrame({
     'Backend': ['CPU (pandas)', 'GPU (cuDF, warm)'],
     'Seconds': [0.767, 0.129]
-}).set_index('Backend')
-st.bar_chart(benchmark)
+})
+
+fig_bench = px.bar(
+    benchmark,
+    x='Backend',
+    y='Seconds',
+    color='Backend',
+    color_discrete_map={'CPU (pandas)': '#94A3B8', 'GPU (cuDF, warm)': '#F59E0B'},
+    text='Seconds',
+)
+fig_bench.update_traces(texttemplate='%{text:.3f}s', textposition='outside')
+fig_bench.update_layout(
+    showlegend=False,
+    xaxis_title='',
+    yaxis_title='Seconds (lower is better)',
+    height=350,
+    margin=dict(l=10, r=10, t=10, b=10),
+)
+st.plotly_chart(fig_bench, use_container_width=True)
 st.metric("Speedup", "5.9x faster")

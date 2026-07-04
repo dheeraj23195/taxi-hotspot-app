@@ -3,3 +3,5 @@ pandas
 scikit-learn==1.6.1
 joblib
 pyarrow==24.0.0
+plotly
+matplotlib
